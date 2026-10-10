@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Para Daniela ❤️</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #060208; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const SC = 21, OY = 20, DURATION = 10, TICK = 16, ANIM = 42, LIFT = 34, GAP = 7;
+  const SIZES = [9, 10, 11, 12];
+  const FONT = "Arial";
+  const BG = "#060208";
+  const PT = 4 / 3; // puntos (tkinter) -> píxeles
+
+  const PHRASES = [
+    "Daniela te amo", "Daniela te amo", "Daniela", "Te amo",
+    "Daniela te amo", "Te amo Daniela", "Daniela", "Te amo"
+  ];
+
+  // RNG con semilla (equivalente a random.Random(11))
+  function mulberry32(a) {
+    return () => {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const rand = mulberry32(11);
+  const uniform = (a, b) => a + (b - a) * rand();
+  const choice = arr => arr[Math.floor(rand() * arr.length)];
+  const shuffle = arr => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  };
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let scale = 1, W = 800, H = 800;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    scale = Math.min(W, H) / 800;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const fontStr = (size, extra = 0) => `bold ${(size + extra) * PT}px ${FONT}, sans-serif`;
+  const widthCache = {};
+  function measure(text, size) {
+    const k = text + "|" + size;
+    if (!(k in widthCache)) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.font = fontStr(size);
+      widthCache[k] = ctx.measureText(text).width;
+      ctx.restore();
+    }
+    return widthCache[k];
+  }
+
+  function heart(a) {
+    const x = 16 * Math.sin(a) ** 3;
+    const y = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+    return [x * SC, y * SC + OY];
+  }
+
+  const clamp = v => Math.max(0, Math.min(1, v));
+  const hx = c => "#" + c.map(v => Math.floor(clamp(v) * 255).toString(16).padStart(2, "0")).join("");
+  const mix = (a, b, k) => a.map((p, i) => p + (b[i] - p) * k);
+  const dim = (c, k) => c.map(v => v * k);
+
+  const POLY = Array.from({ length: 720 }, (_, i) => heart(2 * Math.PI * i / 720));
+  const EDGES = POLY.map((p, i) => [p, POLY[(i + 1) % POLY.length]]);
+  const YMAX = Math.max(...POLY.map(p => p[1]));
+  const YMIN = Math.min(...POLY.map(p => p[1]));
+  const CY = (YMAX + YMIN) / 2;
+
+  function spans(y) {
+    const xs = [];
+    for (const [[x1, y1], [x2, y2]] of EDGES) {
+      if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) {
+        xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+      }
+    }
+    xs.sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+    return out;
+  }
+
+  function intersect(A, B) {
+    const out = [];
+    for (const a of A) for (const b of B) {
+      const lo = Math.max(a[0], b[0]), hi = Math.min(a[1], b[1]);
+      if (hi - lo > 14) out.push([lo, hi]);
+    }
+    return out;
+  }
+
+  let bag = [];
+  function nextPhrase() {
+    if (!bag.length) { bag = PHRASES.slice(); shuffle(bag); }
+    return bag.shift();
+  }
+
+  const mathDist = (x, y) => Math.hypot(x / (16 * SC), (y - CY) / (14.5 * SC));
+
+  function build() {
+    const row_h = 12 * PT * 1.2 + 4;
+    const half = row_h / 2;
+    const placed = [];
+
+    let y = YMAX - half;
+    while (y > YMIN + half) {
+      const row = intersect(spans(y + half), spans(y - half));
+      for (let [lo, hi] of row) {
+        lo += 4; hi -= 4;
+        let cur = lo + uniform(0, 8);
+        const line = [];
+        while (true) {
+          let fit = null;
+          for (let n = 0; n < 10; n++) {
+            const text = nextPhrase();
+            const size = choice(SIZES);
+            const w = measure(text, size);
+            if (cur + w <= hi) { fit = [text, size, w]; break; }
+          }
+          if (!fit) break;
+          const [text, size, w] = fit;
+          line.push([cur + w / 2, text, size, w]);
+          cur += w + GAP;
+        }
+        if (!line.length) continue;
+        if (line.length > 1) {
+          const last = line[line.length - 1];
+          const left = hi - (last[0] + last[3] / 2);
+          line.forEach((it, i) => { it[0] += left * i / (line.length - 1); });
+        } else {
+          line[0][0] = (lo + hi) / 2;
+        }
+        line.forEach(([x, text, size], i) => {
+          const edge = i === 0 || i === line.length - 1;
+          placed.push({ x, y, text, size, edge });
+        });
+      }
+      y -= row_h;
+    }
+
+    const wine = [0.58, 0.0, 0.09], crimson = [0.90, 0.05, 0.14], blood = [0.98, 0.10, 0.16];
+    for (const p of placed) {
+      const rad = Math.min(1, mathDist(p.x, p.y));
+      let base = mix(wine, crimson, 0.25 + 0.75 * rad);
+      base = mix(base, blood, uniform(0, 0.35) + (p.edge ? 0.3 : 0));
+      p.color = base.map(v => Math.min(1, v));
+      p.rad = rad;
+    }
+
+    const edges = placed.filter(p => p.edge);
+    const inner = placed.filter(p => !p.edge);
+    const ang = p => ((Math.atan2(p.x, p.y - CY) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    edges.sort((a, b) => ang(a) - ang(b));
+    inner.forEach(p => { p.key = -p.rad + uniform(0, 0.08); });
+    inner.sort((a, b) => a.key - b.key);
+    return edges.concat(inner);
+  }
+
+  const BGC = [1, 3, 5].map(i => parseInt(BG.slice(i, i + 2), 16) / 255);
+  const FLASH = [1.0, 0.78, 0.78];
+  const ORDER = build();
+  const RATE = ORDER.length / (DURATION * 1000 / TICK);
+
+  let nextIdx = 0, acc = 0, lastT = null, tickAcc = 0;
+  const spawned = [];
+  const overrides = new Map(); // shimmer
+  let shimmerAt = 0;
+
+  // estado de cada elemento
+  function stateOf(p) {
+    const u = clamp(p.f / ANIM);
+    const e = 1 - (1 - u) ** 3;
+    const c = p.color;
+    if (u >= 1) {
+      return { px: p.x, py: -p.y, shadow: dim(c, 0.30), halo: dim(c, 0.20), main: c };
+    }
+    const hover = (1 - e) * LIFT;
+    const flash = 0.75 * Math.sin(Math.PI * clamp((u - 0.55) / 0.45));
+    return {
+      px: p.x + p.dx * (1 - e),
+      py: -p.y - hover,
+      shadow: mix(BGC, dim(c, 0.30), e),
+      halo: mix(BGC, dim(c, 0.20), e * e),
+      main: mix(mix(BGC, c, e ** 1.5), FLASH, flash),
+    };
+  }
+
+  function logicStep() {
+    acc += RATE;
+    while (acc >= 1 && nextIdx < ORDER.length) {
+      acc -= 1;
+      const p = ORDER[nextIdx++];
+      p.f = 0; p.dx = uniform(-10, 10);
+      spawned.push(p);
+    }
+    for (const p of spawned) if (p.f < ANIM) p.f++;
+  }
+
+  function draw(now) {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(scale, scale);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (const p of spawned) {
+      const s = stateOf(p);
+      ctx.font = fontStr(p.size);
+      ctx.fillStyle = hx(s.shadow);
+      ctx.fillText(p.text, p.x + 2, -p.y + 3);
+      ctx.font = fontStr(p.size, 1);
+      ctx.fillStyle = hx(s.halo);
+      ctx.fillText(p.text, s.px, s.py);
+      ctx.font = fontStr(p.size);
+      ctx.fillStyle = hx(overrides.has(p) ? mix(p.color, FLASH, 0.6) : s.main);
+      ctx.fillText(p.text, s.px, s.py);
+    }
+    ctx.restore();
+  }
+
+  function frame(now) {
+    if (lastT === null) lastT = now;
+    tickAcc += now - lastT;
+    lastT = now;
+    if (tickAcc > 250) tickAcc = 250;
+    while (tickAcc >= TICK) { tickAcc -= TICK; logicStep(); }
+
+    const finished = nextIdx >= ORDER.length && spawned.every(p => p.f >= ANIM);
+    if (finished && now >= shimmerAt) {
+      const p = choice(spawned);
+      overrides.set(p, true);
+      setTimeout(() => overrides.delete(p), 260);
+      shimmerAt = now + 140;
+    }
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+
+  setTimeout(() => requestAnimationFrame(frame), 200);
+})();
+</script>
+</body>
+</html>
